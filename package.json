@@ -1,0 +1,45 @@
+{
+  "name": "novatrade-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "test:ai": "tsx src/scripts/testAI.ts",
+    "test:bybit": "tsx src/scripts/testBybit.ts",
+    "test:news": "tsx src/scripts/testNews.ts",
+    "scan:dry": "tsx src/scripts/dryRun.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tharindu825/NovaTrade-Bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/tharindu825/NovaTrade-Bot/issues"
+  },
+  "homepage": "https://github.com/tharindu825/NovaTrade-Bot#readme",
+  "dependencies": {
+    "axios": "^1.20.0",
+    "bybit-api": "^4.7.6",
+    "chalk": "^4.1.2",
+    "cli-table3": "^0.6.5",
+    "dotenv": "^17.4.2",
+    "node-cron": "^4.6.0",
+    "rss-parser": "^3.13.0",
+    "winston": "^3.19.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "@types/node-cron": "^3.0.11",
+    "ts-node-dev": "^2.0.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

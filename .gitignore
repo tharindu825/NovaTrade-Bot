@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Environment Variables (Never commit sensitive credentials!)
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+
+# Persistence & Logs
+data/
+logs/
+*.log
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
