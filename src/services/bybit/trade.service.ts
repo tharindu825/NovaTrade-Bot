@@ -109,54 +109,170 @@ export class BybitTradeService {
   }
 
   /**
-   * Execute Market Entry Order and attach Stop Loss and TP1/TP2
+   * Execute Market Entry Order and attach Stop Loss and TP1/TP2 Limit Orders on Bybit
    */
   async executeSignal(
     signal: SignalCandidate,
     calculatedQty: number
-  ): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    orderId?: string;
+    orderIdTP1?: string;
+    orderIdTP2?: string;
+    error?: string;
+  }> {
     try {
       await this.setLeverage(signal.symbol, env.LEVERAGE);
 
       const side: TradeSide = signal.direction === 'LONG' ? 'Buy' : 'Sell';
-      const { formattedQty, formattedPrice: formattedSL } = await this.formatOrderParams(
+      const closeSide: TradeSide = side === 'Buy' ? 'Sell' : 'Buy';
+
+      // Format Total Entry Qty & SL Price
+      const { formattedQty: totalQtyStr, formattedPrice: formattedSL } = await this.formatOrderParams(
         signal.symbol,
         calculatedQty,
         signal.slPrice
       );
-      const { formattedPrice: formattedTP1 } = await this.formatOrderParams(
+
+      const totalQty = parseFloat(totalQtyStr);
+      const tp1QtyRaw = totalQty * env.TP1_CLOSE_RATIO;
+      const tp2QtyRaw = totalQty - tp1QtyRaw;
+
+      const { formattedQty: formattedTP1Qty, formattedPrice: formattedTP1Price } = await this.formatOrderParams(
         signal.symbol,
-        calculatedQty,
+        tp1QtyRaw,
         signal.tp1Price
+      );
+      const { formattedQty: formattedTP2Qty, formattedPrice: formattedTP2Price } = await this.formatOrderParams(
+        signal.symbol,
+        tp2QtyRaw,
+        signal.tp2Price
       );
 
       logger.info(
-        `🚀 Submitting Bybit Market Entry: ${side} ${formattedQty} ${signal.symbol} | SL: ${formattedSL} | TP1: ${formattedTP1}`
+        `🚀 Submitting Bybit Entry: ${side} ${totalQtyStr} ${signal.symbol} | SL: ${formattedSL} | TP1: ${formattedTP1Price} (${formattedTP1Qty}) | TP2: ${formattedTP2Price} (${formattedTP2Qty})`
       );
 
+      // 1. Submit Market Entry with Position-level Take Profit (TP1) & Stop Loss
       const orderRes = await bybitClient.submitOrder({
         category: 'linear',
         symbol: signal.symbol,
         side,
         orderType: 'Market',
-        qty: formattedQty,
-        stopLoss: formattedSL,
+        qty: totalQtyStr,
+        takeProfit: formattedTP1Price, // Directly populates the green TP in Bybit Position Card (Entire Position)
+        stopLoss: formattedSL,         // Directly populates the red SL in Bybit Position Card (Entire Position)
+        tpTriggerBy: 'LastPrice',
         slTriggerBy: 'LastPrice',
         tpslMode: 'Full',
         positionIdx: 0, // One-Way Mode
       });
 
       if (orderRes.retCode !== 0) {
-        logger.error(`Failed to submit order for ${signal.symbol}: ${orderRes.retMsg} (Code: ${orderRes.retCode})`);
+        logger.error(`Failed to submit entry order for ${signal.symbol}: ${orderRes.retMsg} (Code: ${orderRes.retCode})`);
         return { success: false, error: orderRes.retMsg };
       }
 
       const orderId = orderRes.result?.orderId;
-      logger.info(`✅ Order Placed Successfully! OrderId: ${orderId}`);
+      logger.info(`✅ Entry Order Filled on Bybit with TP ($${formattedTP1Price}) & SL ($${formattedSL})! OrderId: ${orderId}`);
+
       return { success: true, orderId };
     } catch (err: any) {
       logger.error(`Error executing signal for ${signal.symbol}: ${err.message}`);
       return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Set or Sync Position-Level Take Profit and Stop Loss directly on Bybit Position Card
+   */
+  async setPositionTradingStop(params: {
+    symbol: string;
+    stopLoss?: number;
+    takeProfit?: number;
+  }): Promise<boolean> {
+    try {
+      const { formattedPrice: formattedSL } = params.stopLoss
+        ? await this.formatOrderParams(params.symbol, 1, params.stopLoss)
+        : { formattedPrice: undefined };
+      const { formattedPrice: formattedTP } = params.takeProfit
+        ? await this.formatOrderParams(params.symbol, 1, params.takeProfit)
+        : { formattedPrice: undefined };
+
+      const res = await bybitClient.setTradingStop({
+        category: 'linear',
+        symbol: params.symbol,
+        stopLoss: formattedSL,
+        takeProfit: formattedTP,
+        slTriggerBy: 'LastPrice',
+        tpTriggerBy: 'LastPrice',
+        tpslMode: 'Full',
+        positionIdx: 0,
+      });
+
+      if (res.retCode === 0) {
+        logger.info(`🎯 Set Bybit Position Card TP/SL: ${params.symbol} [TP: $${formattedTP || 'unchanged'} | SL: $${formattedSL || 'unchanged'}]`);
+        return true;
+      }
+
+      logger.warn(`Could not set Position TP/SL on Bybit for ${params.symbol}: ${res.retMsg}`);
+      return false;
+    } catch (err: any) {
+      logger.error(`Error setting position TP/SL for ${params.symbol}: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Move Stop Loss to Breakeven (Entry Price) and update Take Profit to TP2
+   */
+  async updateStopLossToBreakevenAndSetTP2(
+    symbol: string,
+    entryPrice: number,
+    tp2Price: number
+  ): Promise<boolean> {
+    try {
+      const { formattedPrice: formattedSL } = await this.formatOrderParams(symbol, 1, entryPrice);
+      const { formattedPrice: formattedTP2 } = await this.formatOrderParams(symbol, 1, tp2Price);
+
+      logger.info(`🛡️ Moving Stop Loss to Breakeven ($${formattedSL}) & Setting TP2 ($${formattedTP2}) on Bybit Position Card`);
+
+      const res = await bybitClient.setTradingStop({
+        category: 'linear',
+        symbol,
+        stopLoss: formattedSL,
+        takeProfit: formattedTP2,
+        slTriggerBy: 'LastPrice',
+        tpTriggerBy: 'LastPrice',
+        tpslMode: 'Full',
+        positionIdx: 0,
+      });
+
+      if (res.retCode !== 0) {
+        logger.error(`Failed to update SL/TP for ${symbol}: ${res.retMsg}`);
+        return false;
+      }
+
+      logger.info(`🔒 Breakeven SL ($${formattedSL}) & TP2 ($${formattedTP2}) Active on Bybit Position Card!`);
+      return true;
+    } catch (err: any) {
+      logger.error(`Error moving SL to breakeven & TP2 for ${symbol}: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Cancel all open orders for a symbol (used upon trade termination)
+   */
+  async cancelOrdersForSymbol(symbol: string): Promise<void> {
+    try {
+      await bybitClient.cancelAllOrders({
+        category: 'linear',
+        symbol,
+      });
+      logger.info(`🧹 Cleaned up open orders for ${symbol}`);
+    } catch (err: any) {
+      logger.warn(`Could not cancel orders for ${symbol}: ${err.message}`);
     }
   }
 

@@ -170,6 +170,8 @@ export class BotOrchestrator {
             tp1Hit: false,
             status: 'OPEN',
             orderIdEntry: executionResult.orderId,
+            orderIdTP1: executionResult.orderIdTP1,
+            orderIdTP2: executionResult.orderIdTP2,
             realizedPnl: 0,
             aiEvaluation,
             createdAt: Date.now(),
