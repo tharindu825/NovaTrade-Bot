@@ -107,10 +107,32 @@ export class BotOrchestrator {
       logger.info(`🎯 Identified ${signals.length} candidate setup(s). Passing to AI Risk & Sentiment Evaluator...`);
 
       for (const signal of signals) {
-        // Prevent duplicate positions on same symbol
-        const alreadyOpen = activeTrades.some((t) => t.symbol === signal.symbol);
-        if (alreadyOpen) {
-          logger.info(`Skipping ${signal.symbol}: Already have an active position.`);
+        // 1. Strict Max Positions Check before every single trade
+        const currentActiveTrades = storageService.getActiveTrades();
+        if (currentActiveTrades.length >= env.MAX_OPEN_POSITIONS) {
+          logger.info(
+            `⏸️ Reached maximum allowed positions (${currentActiveTrades.length}/${env.MAX_OPEN_POSITIONS}). Stopping further entries.`
+          );
+          break;
+        }
+
+        // Check real exchange position count
+        const exchangePositions = await bybitTradeService.getOpenPositions();
+        if (exchangePositions.length >= env.MAX_OPEN_POSITIONS) {
+          logger.info(
+            `⏸️ Reached maximum Bybit open positions (${exchangePositions.length}/${env.MAX_OPEN_POSITIONS}). Stopping further entries.`
+          );
+          break;
+        }
+
+        // 2. Prevent duplicate positions on same symbol
+        const alreadyOpenInDb = currentActiveTrades.some((t) => t.symbol === signal.symbol);
+        const alreadyOpenOnExchange = exchangePositions.some(
+          (p: any) => p.symbol === signal.symbol && parseFloat(p.size) > 0
+        );
+
+        if (alreadyOpenInDb || alreadyOpenOnExchange) {
+          logger.info(`Skipping ${signal.symbol}: Position already open.`);
           continue;
         }
 
