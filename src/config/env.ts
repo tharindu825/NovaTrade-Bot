@@ -43,6 +43,31 @@ const envSchema = z.object({
     .transform((val) => val.toLowerCase() === 'true'),
 
   // 3. Trading & Strategy Parameters
+  COIN_SELECTION_MODE: z.enum(['DYNAMIC', 'STATIC']).default('DYNAMIC'),
+  DYNAMIC_TOP_COINS_COUNT: z
+    .string()
+    .default('15')
+    .transform((val) => parseInt(val, 10)),
+  DYNAMIC_MIN_24H_VOLUME_USDT: z
+    .string()
+    .default('20000000')
+    .transform((val) => parseFloat(val)),
+  DYNAMIC_MAX_SPREAD_PERCENT: z
+    .string()
+    .default('0.06')
+    .transform((val) => parseFloat(val)),
+  DYNAMIC_MIN_ATR_PERCENT: z
+    .string()
+    .default('1.2')
+    .transform((val) => parseFloat(val)),
+  DYNAMIC_MAX_ATR_PERCENT: z
+    .string()
+    .default('7.5')
+    .transform((val) => parseFloat(val)),
+  DYNAMIC_MIN_RVOL: z
+    .string()
+    .default('1.1')
+    .transform((val) => parseFloat(val)),
   TRADING_PAIRS: z
     .string()
     .default('BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT,AVAXUSDT,LINKUSDT,NEARUSDT,SUIUSDT,ADAUSDT')

@@ -10,6 +10,7 @@
     "test:ai": "tsx src/scripts/testAI.ts",
     "test:bybit": "tsx src/scripts/testBybit.ts",
     "test:news": "tsx src/scripts/testNews.ts",
+    "test:coins": "tsx src/scripts/testCoinSelector.ts",
     "scan:dry": "tsx src/scripts/dryRun.ts"
   },
   "repository": {

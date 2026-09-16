@@ -1,50 +1,100 @@
+import Table from 'cli-table3';
+import chalk from 'chalk';
 import { bybitMarketService } from '../bybit/market.service';
 import { technicalIndicators } from './indicators';
 import { signalService } from './signal.service';
-import { SignalCandidate, MarketTicker } from '../../types';
+import { coinSelectorService } from './coinSelector.service';
+import { SignalCandidate, MarketTicker, RankedCoin } from '../../types';
 import { env } from '../../config/env';
 import { logger } from '../logger';
 
 export class ScannerService {
   /**
-   * Scan configured trading pairs for trade setups
+   * Print a table of dynamically selected top coins
    */
-  async scanMarkets(): Promise<{ signals: SignalCandidate[]; tickers: MarketTicker[] }> {
-    logger.info(`🔍 Scanning markets for high-probability setups...`);
-
-    // Fetch tickers
-    const allTickers = await bybitMarketService.getTickers(env.TRADING_PAIRS);
-
-    // Apply Liquidity & Spread Filters
-    const filteredTickers = allTickers.filter((t) => {
-      const passesVolume = t.volume24hUsdt >= env.MIN_24H_VOLUME_USDT;
-      const passesSpread = t.spreadPercent <= env.MAX_SPREAD_PERCENT;
-
-      if (!passesVolume) {
-        logger.debug(`Skipping ${t.symbol}: 24h Vol $${(t.volume24hUsdt / 1e6).toFixed(2)}M < Min $${(env.MIN_24H_VOLUME_USDT / 1e6).toFixed(2)}M`);
-      }
-      if (!passesSpread) {
-        logger.debug(`Skipping ${t.symbol}: Spread ${t.spreadPercent.toFixed(3)}% > Max ${env.MAX_SPREAD_PERCENT}%`);
-      }
-
-      return passesVolume && passesSpread;
+  printCoinSelectionTable(rankedCoins: RankedCoin[]) {
+    console.log('\n' + chalk.bold.magenta('================== DYNAMIC COIN SELECTION RANKINGS =================='));
+    const table = new Table({
+      head: [
+        chalk.white('Rank'),
+        chalk.white('Symbol'),
+        chalk.white('Price'),
+        chalk.white('24h %'),
+        chalk.white('RS vs BTC'),
+        chalk.white('RVOL'),
+        chalk.white('NATR %'),
+        chalk.white('Trend'),
+        chalk.white('Score (0-100)'),
+      ],
+      colWidths: [8, 12, 12, 10, 12, 10, 10, 12, 16],
     });
 
-    logger.info(`📊 ${filteredTickers.length} / ${allTickers.length} symbols passed liquidity & spread filters.`);
+    for (const c of rankedCoins) {
+      const isUp = c.price24hPcnt >= 0;
+      const changeColor = isUp ? chalk.green(`+${c.price24hPcnt.toFixed(2)}%`) : chalk.red(`${c.price24hPcnt.toFixed(2)}%`);
+      const rsColor = c.relativeStrengthVsBtc >= 0 ? chalk.green(`+${c.relativeStrengthVsBtc}%`) : chalk.red(`${c.relativeStrengthVsBtc}%`);
+      const trendColor = c.trendDirection === 'BULLISH' ? chalk.green('BULLISH') : c.trendDirection === 'BEARISH' ? chalk.red('BEARISH') : chalk.gray('NEUTRAL');
+      const scoreColor = c.scores.totalScore >= 75 ? chalk.greenBright(c.scores.totalScore.toString()) : chalk.yellow(c.scores.totalScore.toString());
+
+      table.push([
+        `#${c.rank}`,
+        chalk.bold(c.symbol),
+        `$${c.lastPrice}`,
+        changeColor,
+        rsColor,
+        `${c.rvol}x`,
+        `${c.natrPercent}%`,
+        trendColor,
+        chalk.bold(scoreColor),
+      ]);
+    }
+
+    console.log(table.toString() + '\n');
+  }
+
+  /**
+   * Scan trading pairs (dynamic auto-discovery or static list) for setups
+   */
+  async scanMarkets(): Promise<{ signals: SignalCandidate[]; tickers: MarketTicker[] }> {
+    logger.info(`🔍 Scanning markets [Mode: ${env.COIN_SELECTION_MODE}]...`);
+
+    let targetSymbols: string[] = [];
+    let activeTickers: MarketTicker[] = [];
+
+    if (env.COIN_SELECTION_MODE === 'DYNAMIC') {
+      // 1. Dynamic Multi-Factor Coin Selection
+      const rankedCoins = await coinSelectorService.rankAndSelectTopCoins(env.DYNAMIC_TOP_COINS_COUNT);
+      if (!rankedCoins.length) {
+        logger.warn('Dynamic coin selector found 0 qualifying pairs. Falling back to static pairs.');
+        targetSymbols = env.TRADING_PAIRS;
+      } else {
+        this.printCoinSelectionTable(rankedCoins);
+        targetSymbols = rankedCoins.map((c) => c.symbol);
+      }
+      activeTickers = await bybitMarketService.getTickers(targetSymbols);
+    } else {
+      // 2. Static Universe from .env
+      const allTickers = await bybitMarketService.getTickers(env.TRADING_PAIRS);
+      activeTickers = allTickers.filter((t) => {
+        const passesVolume = t.volume24hUsdt >= env.MIN_24H_VOLUME_USDT;
+        const passesSpread = t.spreadPercent <= env.MAX_SPREAD_PERCENT;
+        return passesVolume && passesSpread;
+      });
+      targetSymbols = activeTickers.map((t) => t.symbol);
+    }
+
+    logger.info(`📊 Scanning ${targetSymbols.length} high-opportunity pairs for technical entry triggers...`);
 
     const signals: SignalCandidate[] = [];
 
-    for (const ticker of filteredTickers) {
+    for (const ticker of activeTickers) {
       try {
-        // Fetch 15m trigger candles & 60m trend candles
         const [triggerCandles, trendCandles] = await Promise.all([
           bybitMarketService.getKlines(ticker.symbol, env.TRIGGER_TIMEFRAME, 100),
           bybitMarketService.getKlines(ticker.symbol, env.TREND_TIMEFRAME, 100),
         ]);
 
-        if (triggerCandles.length < 50 || trendCandles.length < 50) {
-          continue;
-        }
+        if (triggerCandles.length < 50 || trendCandles.length < 50) continue;
 
         const indicators = technicalIndicators.analyzeCandles(triggerCandles, trendCandles);
         if (!indicators) continue;
@@ -59,7 +109,7 @@ export class ScannerService {
       }
     }
 
-    return { signals, tickers: filteredTickers };
+    return { signals, tickers: activeTickers };
   }
 }
 

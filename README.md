@@ -7,6 +7,10 @@
 ## 🌟 Key Highlights & Features
 
 - ⚡ **Bybit V5 Demo Trading API**: Built on the official Bybit V5 Linear USDT Perps SDK (`bybit-api`) running against Bybit's dedicated demo environment (`api-demo.bybit.com`).
+- 💎 **Automated Dynamic Coin Selection Engine**:
+  - Automatically scans the **entire Bybit universe (350+ USDT Perps)** each cycle instead of a static watchlist.
+  - Scores every pair on a **100-point Quantitative Matrix**: Relative Strength vs BTC (30%), Relative Volume Surge RVOL (25%), Trend Structure & EMA Alignment (25%), and Normalized Volatility NATR (20%).
+  - Automatically feeds the top highest-scoring pairs (e.g. Top 15) into the strategy scanner.
 - 🎯 **Bybit Position Card TP/SL Sync**:
   - Automatically attaches and displays **Take Profit** (green) and **Stop Loss** (red) directly on your Bybit **"Entire Position: TP / SL"** position card.
   - Auto-sync engine monitors active positions every 15s and immediately sets missing TP/SL levels on the exchange.

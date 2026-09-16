@@ -40,7 +40,11 @@ export class OpenRouterClient {
     const modelsToTry = [
       env.OPENROUTER_PRIMARY_MODEL,
       env.OPENROUTER_FALLBACK_MODEL,
-      'google/gemini-2.0-flash-lite:free',
+      'google/gemma-4-31b-it:free',
+      'google/gemma-4-26b-a4b-it:free',
+      'z-ai/glm-5.2:free',
+      'inclusionai/ling-3.0-flash-fin:free',
+      'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
     ].filter(Boolean);
 
     for (const model of modelsToTry) {

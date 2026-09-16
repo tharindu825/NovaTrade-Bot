@@ -128,3 +128,28 @@ export interface AccountBalance {
   availableBalance: number;
   currency: string;
 }
+
+export type CoinSelectionMode = 'DYNAMIC' | 'STATIC';
+
+export interface CoinOpportunityScore {
+  relativeStrengthScore: number; // 0 - 30 pts (Performance vs BTC)
+  volumeSurgeScore: number;       // 0 - 25 pts (RVOL relative to 20 SMA)
+  trendStructureScore: number;    // 0 - 25 pts (Multi-timeframe EMA alignment)
+  volatilityHealthScore: number;  // 0 - 20 pts (NATR sweet-spot fit)
+  totalScore: number;             // 0 - 100 pts
+}
+
+export interface RankedCoin {
+  symbol: string;
+  rank: number;
+  lastPrice: number;
+  volume24hUsdt: number;
+  spreadPercent: number;
+  price24hPcnt: number;
+  relativeStrengthVsBtc: number;
+  rvol: number;
+  natrPercent: number;
+  trendDirection: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  scores: CoinOpportunityScore;
+}
+
