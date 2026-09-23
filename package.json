@@ -11,7 +11,8 @@
     "test:bybit": "tsx src/scripts/testBybit.ts",
     "test:news": "tsx src/scripts/testNews.ts",
     "test:coins": "tsx src/scripts/testCoinSelector.ts",
-    "scan:dry": "tsx src/scripts/dryRun.ts"
+    "scan:dry": "tsx src/scripts/dryRun.ts",
+    "pnl:report": "tsx src/scripts/fetchTradeHistory.ts"
   },
   "repository": {
     "type": "git",
