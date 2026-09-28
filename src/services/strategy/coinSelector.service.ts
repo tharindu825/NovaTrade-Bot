@@ -55,11 +55,11 @@ export class CoinSelectorService {
         const indicators = technicalIndicators.analyzeCandles(triggerCandles, trendCandles);
         if (!indicators) continue;
 
-        // A. Relative Strength vs BTC (0 - 30 pts)
+        // A. Relative Strength vs BTC (0 - 25 pts)
         const rsDiff = ticker.symbol === 'BTCUSDT' ? 0 : ticker.price24hPcnt - btcChange24h;
         const absRs = Math.abs(rsDiff);
-        let rsScore = Math.min(30, (absRs / 5) * 30); // 5% divergence = full 30 pts
-        if (ticker.symbol === 'BTCUSDT') rsScore = 20; // Default high benchmark for BTC
+        let rsScore = Math.min(25, (absRs / 5) * 25); // 5% divergence = full 25 pts
+        if (ticker.symbol === 'BTCUSDT') rsScore = 18; // Default high benchmark for BTC
 
         // B. Relative Volume (RVOL) Surge (0 - 25 pts)
         const recentVolumes = triggerCandles.slice(-20).map((c) => c.volume);
@@ -109,13 +109,27 @@ export class CoinSelectorService {
           natrScore = 5; // Too compressed or hyper erratic
         }
 
-        const totalScore = Math.round(rsScore + rvolScore + trendScore + natrScore);
+        // E. Open Interest Momentum (0 - 10 pts)
+        // Rising OI with price = fresh money entering (conviction); falling OI = profit taking
+        let oiScore = 5; // neutral baseline
+        if (ticker.openInterest && ticker.openInterest > 0) {
+          // If price is up AND OI is meaningfully set, reward as bullish OI confirmation.
+          // We only have a snapshot (no delta), so we use price direction as a proxy.
+          const priceIsUp = ticker.price24hPcnt > 1;
+          const priceIsDown = ticker.price24hPcnt < -1;
+          if (priceIsUp && indicators.higherTimeframeTrend === 'BULLISH') oiScore = 10;
+          else if (priceIsDown && indicators.higherTimeframeTrend === 'BEARISH') oiScore = 10;
+          else if (Math.abs(ticker.price24hPcnt) < 0.5) oiScore = 3; // flat OI = low interest
+        }
+
+        const totalScore = Math.round(rsScore + rvolScore + trendScore + natrScore + oiScore);
 
         const scoreBreakdown: CoinOpportunityScore = {
           relativeStrengthScore: Math.round(rsScore),
           volumeSurgeScore: Math.round(rvolScore),
           trendStructureScore: Math.round(trendScore),
           volatilityHealthScore: Math.round(natrScore),
+          openInterestScore: Math.round(oiScore),
           totalScore,
         };
 

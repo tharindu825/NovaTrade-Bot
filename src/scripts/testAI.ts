@@ -34,11 +34,16 @@ async function main() {
     ema50: 64500,
     ema200: 63200,
     rsi: 48.5,
-    macd: { macd: 120, signal: 95, histogram: 25 },
+    stochRsi: 22.0,
+    rsiDivergence: 'NONE',
+    macd: { macd: 120, signal: 95, histogram: 25, prevHistogram: -5 },
+    bollingerBands: { upper: 66000, lower: 63500, width: 0.038, avgWidth: 0.032 },
     atr: 530,
     higherTimeframeTrend: 'BULLISH',
+    trendStrength: 1.2,
     volumeAboveAverage: true,
     regime: 'TRENDING_UP',
+    candlePattern: 'Bullish Engulfing at EMA21',
   };
 
   const result = await aiRiskEvaluator.evaluateTrade(mockSignal, mockIndicators, 0.0001);

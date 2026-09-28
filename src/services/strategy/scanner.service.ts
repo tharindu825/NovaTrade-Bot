@@ -23,10 +23,11 @@ export class ScannerService {
         chalk.white('RS vs BTC'),
         chalk.white('RVOL'),
         chalk.white('NATR %'),
+        chalk.white('OI Score'),
         chalk.white('Trend'),
         chalk.white('Score (0-100)'),
       ],
-      colWidths: [8, 12, 12, 10, 12, 10, 10, 12, 16],
+      colWidths: [8, 12, 12, 10, 12, 10, 10, 10, 12, 16],
     });
 
     for (const c of rankedCoins) {
@@ -44,6 +45,7 @@ export class ScannerService {
         rsColor,
         `${c.rvol}x`,
         `${c.natrPercent}%`,
+        chalk.cyan(`${c.scores.openInterestScore}pt`),
         trendColor,
         chalk.bold(scoreColor),
       ]);
@@ -95,6 +97,18 @@ export class ScannerService {
         ]);
 
         if (triggerCandles.length < 50 || trendCandles.length < 50) continue;
+
+        // [P3-C] Gap filter: skip coins with a recent large news-driven gap (> 3%)
+        // Large gaps invalidate EMA/ATR levels and introduce unquantifiable binary risk.
+        const lastCandle = triggerCandles[triggerCandles.length - 1];
+        const prevCandle = triggerCandles[triggerCandles.length - 2];
+        if (prevCandle && prevCandle.close > 0) {
+          const gapPercent = Math.abs(lastCandle.open - prevCandle.close) / prevCandle.close * 100;
+          if (gapPercent > 3) {
+            logger.debug(`[GAP FILTER] Skipping ${ticker.symbol}: ${gapPercent.toFixed(2)}% candle gap detected.`);
+            continue;
+          }
+        }
 
         const indicators = technicalIndicators.analyzeCandles(triggerCandles, trendCandles);
         if (!indicators) continue;

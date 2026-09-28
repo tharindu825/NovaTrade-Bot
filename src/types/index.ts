@@ -30,15 +30,26 @@ export interface TechnicalIndicators {
   ema50: number;
   ema200: number;
   rsi: number;
+  stochRsi: number;          // Stochastic RSI (0–100)
+  rsiDivergence: 'BULLISH_DIV' | 'BEARISH_DIV' | 'NONE'; // RSI divergence signal
   macd: {
     macd: number;
     signal: number;
     histogram: number;
+    prevHistogram: number;   // Previous bar histogram for flip detection
+  };
+  bollingerBands: {
+    upper: number;
+    lower: number;
+    width: number;           // Normalised (upper-lower)/mid — for squeeze filter
+    avgWidth: number;        // 20-bar average width for comparison
   };
   atr: number;
   higherTimeframeTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  trendStrength: number;     // % separation of trend EMA50 vs EMA200 (higher = stronger trend)
   volumeAboveAverage: boolean;
   regime: MarketRegime;
+  candlePattern: string;     // Named candle pattern detected (e.g. 'Bullish Engulfing at EMA21')
 }
 
 export interface SignalCandidate {
@@ -132,10 +143,11 @@ export interface AccountBalance {
 export type CoinSelectionMode = 'DYNAMIC' | 'STATIC';
 
 export interface CoinOpportunityScore {
-  relativeStrengthScore: number; // 0 - 30 pts (Performance vs BTC)
+  relativeStrengthScore: number;  // 0 - 25 pts (Performance vs BTC)
   volumeSurgeScore: number;       // 0 - 25 pts (RVOL relative to 20 SMA)
   trendStructureScore: number;    // 0 - 25 pts (Multi-timeframe EMA alignment)
-  volatilityHealthScore: number;  // 0 - 20 pts (NATR sweet-spot fit)
+  volatilityHealthScore: number;  // 0 - 15 pts (NATR sweet-spot fit)
+  openInterestScore: number;      // 0 - 10 pts (OI momentum — fresh money in/out)
   totalScore: number;             // 0 - 100 pts
 }
 

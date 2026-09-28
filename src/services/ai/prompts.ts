@@ -40,12 +40,15 @@ Do NOT include any markdown code blocks (like \`\`\`json), just the raw JSON obj
   - ${signal.technicalReasons.join('\n  - ')}
 
 === TECHNICAL INDICATOR CONTEXT ===
-• Higher Timeframe Trend (1h/4h): ${indicators.higherTimeframeTrend}
+• Higher Timeframe Trend: ${indicators.higherTimeframeTrend} (Trend Strength: ${indicators.trendStrength.toFixed(2)}% EMA50/200 separation)
 • Market Regime: ${indicators.regime}
-• RSI (14): ${indicators.rsi.toFixed(2)}
-• MACD Line: ${indicators.macd.macd.toFixed(4)} | Signal: ${indicators.macd.signal.toFixed(4)} | Histogram: ${indicators.macd.histogram.toFixed(4)}
+• RSI (14): ${indicators.rsi.toFixed(2)} | Stochastic RSI: ${indicators.stochRsi.toFixed(1)} ${indicators.stochRsi <= 25 ? '(Oversold — High-Quality Long Zone)' : indicators.stochRsi >= 75 ? '(Overbought — High-Quality Short Zone)' : '(Neutral)'}
+• RSI Divergence: ${indicators.rsiDivergence === 'NONE' ? 'None detected' : `⚡ ${indicators.rsiDivergence} — adds conviction to the entry`}
+• MACD Line: ${indicators.macd.macd.toFixed(4)} | Signal: ${indicators.macd.signal.toFixed(4)} | Histogram: ${indicators.macd.histogram.toFixed(4)} | Prev Histogram: ${indicators.macd.prevHistogram.toFixed(4)} ${indicators.macd.prevHistogram < 0 && indicators.macd.histogram >= 0 ? '✅ FLIPPED BULLISH' : indicators.macd.prevHistogram > 0 && indicators.macd.histogram <= 0 ? '🔻 FLIPPED BEARISH' : ''}
 • EMA 9: $${indicators.ema9.toFixed(2)} | EMA 21: $${indicators.ema21.toFixed(2)} | EMA 50: $${indicators.ema50.toFixed(2)} | EMA 200: $${indicators.ema200.toFixed(2)}
-• Volume Above 20-period SMA: ${indicators.volumeAboveAverage ? 'YES (Surge)' : 'NO (Normal/Low)'}
+• Bollinger Bands: Width ${(indicators.bollingerBands.width * 100).toFixed(2)}% vs Avg ${(indicators.bollingerBands.avgWidth * 100).toFixed(2)}% ${indicators.bollingerBands.width >= indicators.bollingerBands.avgWidth ? '✅ Expanding (good entry timing)' : '⚠️ Contracting (squeeze — avoid)'}
+• Volume Above 20-period SMA: ${indicators.volumeAboveAverage ? 'YES ✅ (Surge — adds conviction)' : 'NO ⚠️ (Low/Normal — reduces conviction)'}
+• Candle Pattern Detected: ${indicators.candlePattern}
 
 === DERIVATIVES & MACRO SENTIMENT ===
 • 8h Funding Rate: ${(fundingRate * 100).toFixed(4)}% ${fundingRate > 0.03 ? '⚠️ (Extremely crowded longs)' : fundingRate < -0.03 ? '⚠️ (Extremely crowded shorts)' : '(Balanced)'}
