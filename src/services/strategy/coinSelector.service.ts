@@ -46,8 +46,8 @@ export class CoinSelectorService {
     for (const ticker of candidatePool) {
       try {
         const [triggerCandles, trendCandles] = await Promise.all([
-          bybitMarketService.getKlines(ticker.symbol, env.TRIGGER_TIMEFRAME, 60),
-          bybitMarketService.getKlines(ticker.symbol, env.TREND_TIMEFRAME, 60),
+          bybitMarketService.getKlines(ticker.symbol, env.TRIGGER_TIMEFRAME, 200),
+          bybitMarketService.getKlines(ticker.symbol, env.TREND_TIMEFRAME, 200),
         ]);
 
         if (triggerCandles.length < 30 || trendCandles.length < 30) continue;

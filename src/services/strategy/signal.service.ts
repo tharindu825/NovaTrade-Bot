@@ -69,7 +69,7 @@ const FILTER_PROFILES: Record<'STRICT' | 'MODERATE' | 'RELAXED', FilterProfile> 
     emaBandBuffer:          0.005,
     rsiLongMin:             35,
     rsiLongMax:             70,
-    rsiShortMin:            30,
+    rsiShortMin:            22,   // Lowered from 30: bear dumps can push RSI to 20-25
     rsiShortMax:            68,
     stochRsiOversoldMax:    45,
     stochRsiOverboughtMin:  55,
@@ -87,7 +87,7 @@ const FILTER_PROFILES: Record<'STRICT' | 'MODERATE' | 'RELAXED', FilterProfile> 
     emaBandBuffer:          0.01,
     rsiLongMin:             30,
     rsiLongMax:             75,
-    rsiShortMin:            25,
+    rsiShortMin:            15,   // Lowered from 25: catches extreme oversold shorts
     rsiShortMax:            72,
     stochRsiOversoldMax:    60,
     stochRsiOverboughtMin:  40,
@@ -173,12 +173,14 @@ export class SignalService {
         indicators.macd.prevHistogram < 0 && indicators.macd.histogram >= 0;
       const isMacdBullish = isHistogramFlipping || indicators.macd.histogram > 0;
 
-      // [P1-B] 2-candle structure or bullish engulfing
-      const isCandleBullish = currentCandle.close >= currentCandle.open;
-      const isPrevCandleBullish = prevCandle.close >= prevCandle.open;
+      // [P1-B] Use two CLOSED candles (lastIdx-1 and lastIdx-2), not the live forming candle
+      const closedCandle = triggerCandles[lastIdx - 1];
+      const prevClosedCandle = triggerCandles[lastIdx - 2];
+      const isCandleBullish = closedCandle.close >= closedCandle.open;
+      const isPrevCandleBullish = prevClosedCandle.close >= prevClosedCandle.open;
       const isBullishEngulfing =
-        currentCandle.close > prevCandle.open &&
-        currentCandle.open < prevCandle.close &&
+        closedCandle.close > prevClosedCandle.open &&
+        closedCandle.open < prevClosedCandle.close &&
         isCandleBullish &&
         !isPrevCandleBullish;
       const isCandleStructureValid =
@@ -271,25 +273,33 @@ export class SignalService {
         indicators.macd.prevHistogram > 0 && indicators.macd.histogram <= 0;
       const isMacdBearish = isHistogramFlipping || indicators.macd.histogram < 0;
 
-      // [P1-B] 2-candle structure or bearish engulfing
-      const isCandleBearish = currentCandle.close <= currentCandle.open;
-      const isPrevCandleBearish = prevCandle.close <= prevCandle.open;
+      // [P1-B] Use two CLOSED candles (lastIdx-1 and lastIdx-2), not the live forming candle
+      const closedCandle = triggerCandles[lastIdx - 1];
+      const prevClosedCandle = triggerCandles[lastIdx - 2];
+      const isCandleBearish = closedCandle.close <= closedCandle.open;
+      const isPrevCandleBearish = prevClosedCandle.close <= prevClosedCandle.open;
       const isBearishEngulfing =
-        currentCandle.close < prevCandle.open &&
-        currentCandle.open > prevCandle.close &&
+        closedCandle.close < prevClosedCandle.open &&
+        closedCandle.open > prevClosedCandle.close &&
         isCandleBearish &&
         !isPrevCandleBearish;
       const isCandleStructureValid =
         (isCandleBearish && isPrevCandleBearish) || isBearishEngulfing;
 
+      // [P2-B-CONTEXT] In a deep bear dump (RSI < 25), StochRSI can stay oversold
+      // throughout the fall. Waive the overbought requirement when RSI confirms extreme
+      // bearish momentum — the RSI gate already enforces a reasonable range.
+      const isDeepDump = indicators.rsi < 25;
+      const isStochOkForShort = isStochRsiOverbought || isDeepDump;
+
       logger.debug(
-        `[SHORT][${env.FILTER_MODE}] ${symbol}: zone=${isInEmaZone} rsi=${isRsiHealthy} stoch=${isStochRsiOverbought} macd=${isMacdBearish} candle=${isCandleStructureValid} vol=${isVolumeSurging} trend=${hasTrendStrength} bb=${isBbExpanding}`
+        `[SHORT][${env.FILTER_MODE}] ${symbol}: zone=${isInEmaZone} rsi=${isRsiHealthy} stoch=${isStochOkForShort}(deepDump=${isDeepDump}) macd=${isMacdBearish} candle=${isCandleStructureValid} vol=${isVolumeSurging} trend=${hasTrendStrength} bb=${isBbExpanding}`
       );
 
       if (
         isInEmaZone &&
         isRsiHealthy &&
-        isStochRsiOverbought &&
+        isStochOkForShort &&
         isMacdBearish &&
         isCandleStructureValid &&
         isVolumeSurging &&

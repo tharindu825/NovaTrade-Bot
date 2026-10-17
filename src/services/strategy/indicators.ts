@@ -103,7 +103,17 @@ export class TechnicalIndicatorService {
       if (slice.length < 2) return NaN;
       const minRsi = Math.min(...slice);
       const maxRsi = Math.max(...slice);
-      if (maxRsi === minRsi) return 50;
+      // Guard: if the RSI range is too flat (< 0.5 points) the normalised
+      // result is meaningless — return the raw RSI percentile instead of
+      // defaulting to 50 which causes every StochRSI gate to fail.
+      if (maxRsi - minRsi < 0.5) {
+        // Fall back to a broader 50-bar lookback to find usable range
+        const broad = rsiSeries.slice(Math.max(0, i - 49), i + 1).filter((v) => !isNaN(v));
+        const bMin = Math.min(...broad);
+        const bMax = Math.max(...broad);
+        if (bMax - bMin < 0.5) return rsiSeries[i] > 70 ? 90 : rsiSeries[i] < 30 ? 10 : 50;
+        return ((rsiSeries[i] - bMin) / (bMax - bMin)) * 100;
+      }
       return ((rsiSeries[i] - minRsi) / (maxRsi - minRsi)) * 100;
     });
   }
@@ -401,9 +411,11 @@ export class TechnicalIndicatorService {
         : 0;
 
     // --- Volume Surge ---
-    const currentVolume = triggerVolumes[lastIdx];
-    const avgVolume = volumeSma[lastIdx] || 0;
-    const volumeAboveAverage = currentVolume > avgVolume * 1.1;
+    // Use the previous CLOSED candle's volume, not the current live/forming candle
+    // which will always appear low mid-candle and cause spurious gate failures.
+    const closedVolume = triggerVolumes[lastIdx - 1] ?? triggerVolumes[lastIdx];
+    const avgVolume = volumeSma[lastIdx - 1] || volumeSma[lastIdx] || 0;
+    const volumeAboveAverage = avgVolume > 0 && closedVolume > avgVolume * 1.1;
 
     // --- Market Regime ---
     let regime: MarketRegime = 'RANGING';
