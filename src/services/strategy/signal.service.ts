@@ -2,21 +2,120 @@ import { Candle, SignalCandidate, TechnicalIndicators } from '../../types';
 import { env } from '../../config/env';
 import { logger } from '../logger';
 
+// ─── Filter Mode Profiles ──────────────────────────────────────────────────────
+/**
+ * Three pre-defined strictness profiles, switchable via FILTER_MODE in .env.
+ *
+ *  STRICT   — Original settings. All gates are tight; fewest trades, highest conviction.
+ *  MODERATE — Balanced default. EMA zone, StochRSI, BB and trend strength relaxed.
+ *  RELAXED  — Very permissive. For low-volatility / ranging markets or initial testing.
+ */
+interface FilterProfile {
+  // [P2-C] Minimum EMA50/EMA200 separation % to confirm trend strength
+  trendStrengthMin: number;
+
+  // [P2-D] BB width must be >= avgWidth * this multiplier
+  bbExpansionMultiplier: number;
+
+  // [P1-C] EMA zone: ATR tolerance for how far price can be from EMA21/EMA50
+  emaAtrTolerance: number;
+
+  // [P1-C] EMA zone: close/open price band buffer (fraction of price)
+  emaBandBuffer: number;
+
+  // Long RSI range
+  rsiLongMin: number;
+  rsiLongMax: number;
+
+  // Short RSI range
+  rsiShortMin: number;
+  rsiShortMax: number;
+
+  // [P2-B] Long: StochRSI must be <= this (oversold)
+  stochRsiOversoldMax: number;
+
+  // [P2-B] Short: StochRSI must be >= this (overbought)
+  stochRsiOverboughtMin: number;
+}
+
+const FILTER_PROFILES: Record<'STRICT' | 'MODERATE' | 'RELAXED', FilterProfile> = {
+  /**
+   * STRICT — Original high-conviction settings.
+   * Designed for strong trending markets with clear momentum.
+   * Fewest signals, but highest win-rate expectancy.
+   */
+  STRICT: {
+    trendStrengthMin:       0.4,
+    bbExpansionMultiplier:  0.95,
+    emaAtrTolerance:        0.8,
+    emaBandBuffer:          0.002,
+    rsiLongMin:             38,
+    rsiLongMax:             65,
+    rsiShortMin:            35,
+    rsiShortMax:            62,
+    stochRsiOversoldMax:    30,
+    stochRsiOverboughtMin:  70,
+  },
+
+  /**
+   * MODERATE — Balanced default.
+   * EMA zone is wider, StochRSI window expanded, BB can be mildly contracting.
+   * Good for most market conditions — recommended starting point.
+   */
+  MODERATE: {
+    trendStrengthMin:       0.2,
+    bbExpansionMultiplier:  0.80,
+    emaAtrTolerance:        1.5,
+    emaBandBuffer:          0.005,
+    rsiLongMin:             35,
+    rsiLongMax:             70,
+    rsiShortMin:            30,
+    rsiShortMax:            68,
+    stochRsiOversoldMax:    45,
+    stochRsiOverboughtMin:  55,
+  },
+
+  /**
+   * RELAXED — Very permissive.
+   * Catches early setups in low-volatility, ranging, or recovering markets.
+   * Higher trade frequency; use with reduced position sizing or paper trading.
+   */
+  RELAXED: {
+    trendStrengthMin:       0.05,
+    bbExpansionMultiplier:  0.60,
+    emaAtrTolerance:        2.5,
+    emaBandBuffer:          0.01,
+    rsiLongMin:             30,
+    rsiLongMax:             75,
+    rsiShortMin:            25,
+    rsiShortMax:            72,
+    stochRsiOversoldMax:    60,
+    stochRsiOverboughtMin:  40,
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export class SignalService {
   /**
-   * Evaluate if candles and technical indicators form a high-probability trade candidate.
+   * Evaluate if candles and technical indicators form a trade candidate.
+   *
+   * The strictness of every gate is controlled by FILTER_MODE in .env:
+   *   STRICT   → tight gates, fewest signals, highest conviction
+   *   MODERATE → balanced (default)
+   *   RELAXED  → permissive, more signals, best for low-volatility markets
    *
    * Gates applied (in order):
-   *   P1-A  Volume confirmation  — volumeAboveAverage must be true
-   *   P1-B  2-candle / engulfing — requires a real bullish/bearish structure, not a single doji
-   *   P1-C  EMA zone check       — price must be inside the EMA21–EMA50 band, not just "near" one
-   *   P2-A  MACD histogram flip  — histogram must have turned positive (not just > 0 with loose OR)
-   *   P2-B  Stochastic RSI gate  — StochRSI < 25 for longs, > 75 for shorts (oversold/overbought)
-   *   P2-C  Trend strength       — EMA50/EMA200 separation >= 0.4% to avoid weak/false trends
-   *   P2-D  BB expansion filter  — Bollinger Band width >= average width (expanding, not squeezing)
-   *   P3-A  Dynamic swing lookback — 15–20 candle lookback for more robust SL placement
-   *   P3-B  RSI divergence bonus  — upgrades confidence reason when divergence detected
-   *   P3-C  Named candle pattern   — included in technicalReasons for AI context
+   *   P1-A  Volume confirmation   — volumeAboveAverage must be true
+   *   P1-B  2-candle / engulfing  — requires a real bullish/bearish structure
+   *   P1-C  EMA zone check        — price inside/near the EMA21–EMA50 band
+   *   P2-A  MACD histogram flip   — histogram turned positive/negative
+   *   P2-B  StochRSI gate         — oversold for longs, overbought for shorts
+   *   P2-C  Trend strength        — EMA50/EMA200 separation meets minimum
+   *   P2-D  BB expansion filter   — Bollinger Band width above threshold
+   *   P3-A  Dynamic swing lookback — 15–20 candle lookback for SL placement
+   *   P3-B  RSI divergence bonus   — upgrades confidence reason
+   *   P3-C  Named candle pattern   — included in reasons for AI context
    */
   evaluateSetup(
     symbol: string,
@@ -24,6 +123,8 @@ export class SignalService {
     indicators: TechnicalIndicators
   ): SignalCandidate | null {
     if (triggerCandles.length < 20) return null;
+
+    const profile = FILTER_PROFILES[env.FILTER_MODE];
 
     const lastIdx = triggerCandles.length - 1;
     const currentCandle = triggerCandles[lastIdx];
@@ -35,11 +136,12 @@ export class SignalService {
 
     // ─── Shared pre-computation ──────────────────────────────────────────────
 
-    // [P2-C] Trend must be convincingly strong (EMA50/200 separation ≥ 0.4%)
-    const hasTrendStrength = indicators.trendStrength >= 0.4;
+    // [P2-C] Trend strength gate
+    const hasTrendStrength = indicators.trendStrength >= profile.trendStrengthMin;
 
-    // [P2-D] Bollinger Bands must be expanding (width ≥ recent average)
-    const isBbExpanding = indicators.bollingerBands.width >= indicators.bollingerBands.avgWidth * 0.95;
+    // [P2-D] Bollinger Band expansion gate
+    const isBbExpanding =
+      indicators.bollingerBands.width >= indicators.bollingerBands.avgWidth * profile.bbExpansionMultiplier;
 
     // [P1-A] Volume confirmation
     const isVolumeSurging = indicators.volumeAboveAverage;
@@ -48,27 +150,30 @@ export class SignalService {
     // LONG EVALUATION
     // ─────────────────────────────────────────────────────────────────────────
     if (indicators.higherTimeframeTrend === 'BULLISH') {
-
-      // [P1-C] Price must be pulling back INTO the EMA band (between ema21 and ema50)
       const emaLow = Math.min(indicators.ema21, indicators.ema50);
       const emaHigh = Math.max(indicators.ema21, indicators.ema50);
+      const buf = profile.emaBandBuffer;
+      const emaAtr = profile.emaAtrTolerance;
+
+      // [P1-C] Price must be pulling back INTO / near the EMA band
       const isInEmaZone =
-        currentCandle.low <= emaHigh * 1.002 &&
-        currentCandle.close >= emaLow * 0.998 &&
-        Math.abs(currentCandle.low - indicators.ema21) <= atr * 0.8 ||
-        Math.abs(currentCandle.low - indicators.ema50) <= atr * 0.8;
+        (currentCandle.low <= emaHigh * (1 + buf) &&
+          currentCandle.close >= emaLow * (1 - buf) &&
+          Math.abs(currentCandle.low - indicators.ema21) <= atr * emaAtr) ||
+        Math.abs(currentCandle.low - indicators.ema50) <= atr * emaAtr;
 
-      const isRsiHealthy = indicators.rsi >= 38 && indicators.rsi <= 65;
+      // RSI health
+      const isRsiHealthy = indicators.rsi >= profile.rsiLongMin && indicators.rsi <= profile.rsiLongMax;
 
-      // [P2-B] Stochastic RSI: require recently oversold (< 25) for high-quality entries
-      const isStochRsiOversold = indicators.stochRsi <= 30;
+      // [P2-B] StochRSI: oversold gate
+      const isStochRsiOversold = indicators.stochRsi <= profile.stochRsiOversoldMax;
 
-      // [P2-A] MACD: histogram must have flipped from negative → positive, OR be solidly positive
+      // [P2-A] MACD: histogram flip or bullish expansion
       const isHistogramFlipping =
         indicators.macd.prevHistogram < 0 && indicators.macd.histogram >= 0;
       const isMacdBullish = isHistogramFlipping || indicators.macd.histogram > 0;
 
-      // [P1-B] 2-candle structure: require 2 consecutive bullish closes OR a bullish engulfing
+      // [P1-B] 2-candle structure or bullish engulfing
       const isCandleBullish = currentCandle.close >= currentCandle.open;
       const isPrevCandleBullish = prevCandle.close >= prevCandle.open;
       const isBullishEngulfing =
@@ -78,6 +183,10 @@ export class SignalService {
         !isPrevCandleBullish;
       const isCandleStructureValid =
         (isCandleBullish && isPrevCandleBullish) || isBullishEngulfing;
+
+      logger.debug(
+        `[LONG][${env.FILTER_MODE}] ${symbol}: zone=${isInEmaZone} rsi=${isRsiHealthy} stoch=${isStochRsiOversold} macd=${isMacdBullish} candle=${isCandleStructureValid} vol=${isVolumeSurging} trend=${hasTrendStrength} bb=${isBbExpanding}`
+      );
 
       if (
         isInEmaZone &&
@@ -101,9 +210,9 @@ export class SignalService {
         const tp1Price = entryPrice + riskDistance * env.TP1_RR_RATIO;
         const tp2Price = entryPrice + riskDistance * env.TP2_RR_RATIO;
 
-        // [P3-C] Build rich reasons list including candle pattern and divergence
+        // [P3-C] Build rich reasons list
         const reasons: string[] = [
-          `Higher Timeframe Trend is BULLISH (EMA50 > EMA200, strength: ${indicators.trendStrength.toFixed(2)}%)`,
+          `[Mode: ${env.FILTER_MODE}] Higher Timeframe Trend is BULLISH (EMA50 > EMA200, strength: ${indicators.trendStrength.toFixed(2)}%)`,
           `${indicators.candlePattern} — Valid 2-bar bullish structure`,
           `RSI at ${indicators.rsi.toFixed(1)} | StochRSI at ${indicators.stochRsi.toFixed(1)} (Oversold within healthy zone)`,
           `MACD ${isHistogramFlipping ? 'Histogram FLIPPED positive' : 'confirming upside expansion'}`,
@@ -116,10 +225,6 @@ export class SignalService {
         if (indicators.rsiDivergence === 'BULLISH_DIV') {
           reasons.unshift(`⚡ BULLISH RSI DIVERGENCE DETECTED — High-Conviction Entry`);
         }
-
-        logger.debug(
-          `[LONG] ${symbol} gates: zone=${isInEmaZone} rsi=${isRsiHealthy} stoch=${isStochRsiOversold} macd=${isMacdBullish} candle=${isCandleStructureValid} vol=${isVolumeSurging} trend=${hasTrendStrength} bb=${isBbExpanding}`
-        );
 
         return {
           symbol,
@@ -143,27 +248,30 @@ export class SignalService {
     // SHORT EVALUATION
     // ─────────────────────────────────────────────────────────────────────────
     if (indicators.higherTimeframeTrend === 'BEARISH') {
-
-      // [P1-C] Price must be bouncing up INTO the EMA band from below (resistance)
       const emaLow = Math.min(indicators.ema21, indicators.ema50);
       const emaHigh = Math.max(indicators.ema21, indicators.ema50);
+      const buf = profile.emaBandBuffer;
+      const emaAtr = profile.emaAtrTolerance;
+
+      // [P1-C] Price must be bouncing INTO / near the EMA band from below (resistance)
       const isInEmaZone =
-        currentCandle.high >= emaLow * 0.998 &&
-        currentCandle.close <= emaHigh * 1.002 &&
-        Math.abs(currentCandle.high - indicators.ema21) <= atr * 0.8 ||
-        Math.abs(currentCandle.high - indicators.ema50) <= atr * 0.8;
+        (currentCandle.high >= emaLow * (1 - buf) &&
+          currentCandle.close <= emaHigh * (1 + buf) &&
+          Math.abs(currentCandle.high - indicators.ema21) <= atr * emaAtr) ||
+        Math.abs(currentCandle.high - indicators.ema50) <= atr * emaAtr;
 
-      const isRsiHealthy = indicators.rsi >= 35 && indicators.rsi <= 62;
+      // RSI health
+      const isRsiHealthy = indicators.rsi >= profile.rsiShortMin && indicators.rsi <= profile.rsiShortMax;
 
-      // [P2-B] Stochastic RSI: require recently overbought (> 70) for high-quality shorts
-      const isStochRsiOverbought = indicators.stochRsi >= 70;
+      // [P2-B] StochRSI: overbought gate
+      const isStochRsiOverbought = indicators.stochRsi >= profile.stochRsiOverboughtMin;
 
-      // [P2-A] MACD: histogram must have flipped from positive → negative, OR be solidly negative
+      // [P2-A] MACD: histogram flip or bearish expansion
       const isHistogramFlipping =
         indicators.macd.prevHistogram > 0 && indicators.macd.histogram <= 0;
       const isMacdBearish = isHistogramFlipping || indicators.macd.histogram < 0;
 
-      // [P1-B] 2-candle structure: require 2 consecutive bearish closes OR a bearish engulfing
+      // [P1-B] 2-candle structure or bearish engulfing
       const isCandleBearish = currentCandle.close <= currentCandle.open;
       const isPrevCandleBearish = prevCandle.close <= prevCandle.open;
       const isBearishEngulfing =
@@ -173,6 +281,10 @@ export class SignalService {
         !isPrevCandleBearish;
       const isCandleStructureValid =
         (isCandleBearish && isPrevCandleBearish) || isBearishEngulfing;
+
+      logger.debug(
+        `[SHORT][${env.FILTER_MODE}] ${symbol}: zone=${isInEmaZone} rsi=${isRsiHealthy} stoch=${isStochRsiOverbought} macd=${isMacdBearish} candle=${isCandleStructureValid} vol=${isVolumeSurging} trend=${hasTrendStrength} bb=${isBbExpanding}`
+      );
 
       if (
         isInEmaZone &&
@@ -198,7 +310,7 @@ export class SignalService {
 
         // [P3-C] Build rich reasons list
         const reasons: string[] = [
-          `Higher Timeframe Trend is BEARISH (EMA50 < EMA200, strength: ${indicators.trendStrength.toFixed(2)}%)`,
+          `[Mode: ${env.FILTER_MODE}] Higher Timeframe Trend is BEARISH (EMA50 < EMA200, strength: ${indicators.trendStrength.toFixed(2)}%)`,
           `${indicators.candlePattern} — Valid 2-bar bearish structure`,
           `RSI at ${indicators.rsi.toFixed(1)} | StochRSI at ${indicators.stochRsi.toFixed(1)} (Overbought at resistance)`,
           `MACD ${isHistogramFlipping ? 'Histogram FLIPPED negative' : 'confirming downward expansion'}`,
@@ -211,10 +323,6 @@ export class SignalService {
         if (indicators.rsiDivergence === 'BEARISH_DIV') {
           reasons.unshift(`⚡ BEARISH RSI DIVERGENCE DETECTED — High-Conviction Short`);
         }
-
-        logger.debug(
-          `[SHORT] ${symbol} gates: zone=${isInEmaZone} rsi=${isRsiHealthy} stoch=${isStochRsiOverbought} macd=${isMacdBearish} candle=${isCandleStructureValid} vol=${isVolumeSurging} trend=${hasTrendStrength} bb=${isBbExpanding}`
-        );
 
         return {
           symbol,

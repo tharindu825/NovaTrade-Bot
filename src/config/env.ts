@@ -43,6 +43,13 @@ const envSchema = z.object({
     .transform((val) => val.toLowerCase() === 'true'),
 
   // 3. Trading & Strategy Parameters
+  /**
+   * FILTER_MODE controls how strict the entry signal gates are:
+   *   STRICT   — Original high-conviction settings. Fewest trades, highest quality.
+   *   MODERATE — Balanced. Relaxed EMA zone, StochRSI, BB expansion & trend strength.
+   *   RELAXED  — Very permissive. Catches early setups in low-volatility / ranging markets.
+   */
+  FILTER_MODE: z.enum(['STRICT', 'MODERATE', 'RELAXED']).default('MODERATE'),
   COIN_SELECTION_MODE: z.enum(['DYNAMIC', 'STATIC']).default('DYNAMIC'),
   DYNAMIC_TOP_COINS_COUNT: z
     .string()
